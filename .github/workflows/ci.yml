@@ -33,3 +33,13 @@ jobs:
 
       - name: Type check
         run: npm run types:check
+
+      # Downloadable preview of the built site. Serve it locally with e.g.
+      # `python3 -m http.server` and open /en/latest/.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site-preview
+          path: |
+            out/
+            out-root/
+          retention-days: 7
