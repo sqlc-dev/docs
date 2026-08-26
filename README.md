@@ -59,7 +59,9 @@ The ingest step (`scripts/ingest.mjs`) writes `content/docs/`: it derives
 each page's frontmatter `title` from its `#` heading and strips it, copies
 the body verbatim, and converts `toc.yaml` into a Fumadocs `meta.json`
 (sections become sidebar separators; `unlisted` pages get routes but stay out
-of the sidebar). Anything unexpected — an unknown `toc.yaml` field, a page
+of the sidebar). The one page-level transform: `reference/changelog.md` is
+split into one page per release (`/en/latest/reference/changelog/v1.31.1.html`)
+plus a release index at the original URL. Anything unexpected — an unknown `toc.yaml` field, a page
 without a title — fails the build loudly: that's the contract-drift alarm.
 `content/` is generated output; never commit or hand-edit it.
 

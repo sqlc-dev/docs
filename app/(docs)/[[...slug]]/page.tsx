@@ -29,6 +29,11 @@ export default async function Page(props: PageProps<'/[[...slug]]'>) {
 
   const MDX = page.data.body;
   const markdownUrl = getPageMarkdownUrl(page).url;
+  // Per-release changelog pages are split out of reference/changelog.md by
+  // the ingest step; their upstream source is that one file.
+  const sourcePath = page.path.startsWith('reference/changelog/')
+    ? 'reference/changelog.md'
+    : page.path;
 
   return (
     <DocsPage toc={page.data.toc} full={page.data.full}>
@@ -38,7 +43,7 @@ export default async function Page(props: PageProps<'/[[...slug]]'>) {
         <MarkdownCopyButton markdownUrl={markdownUrl} />
         <ViewOptionsPopover
           markdownUrl={markdownUrl}
-          githubUrl={`https://github.com/${gitConfig.user}/${gitConfig.repo}/blob/${gitConfig.branch}/docs/${page.path}`}
+          githubUrl={`https://github.com/${gitConfig.user}/${gitConfig.repo}/blob/${gitConfig.branch}/docs/${sourcePath}`}
         />
       </div>
       <DocsBody>

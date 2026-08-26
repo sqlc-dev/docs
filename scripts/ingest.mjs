@@ -115,6 +115,65 @@ function extractTitle(rel, src) {
   return { title, body: src.slice(match[0].length).replace(/^\r?\n/, '') };
 }
 
+// The changelog is one long page upstream; render it as one URL per release
+// (reference/changelog/v1.31.1.html) with reference/changelog.html as the
+// release index. Sections look like:
+//
+//   ## [1.31.1](https://github.com/sqlc-dev/sqlc/releases/tag/v1.31.1)
+//   Released 2026-04-22
+//   ### Bug Fixes
+//   - ...
+//
+// Anything else is contract drift and fails the build.
+function splitChangelog(rel, body) {
+  // Leftover MyST anchor targets ("(v1-31-1)=") from the old toolchain
+  // render as literal text; drop them.
+  const lines = body.split('\n').filter((l) => !/^\([a-z0-9._-]+\)=\s*$/i.test(l));
+
+  const sections = [];
+  let intro = [];
+  let current = null;
+  for (const line of lines) {
+    if (line.startsWith('## ')) {
+      const m = /^## \[v?([^\]]+)\]\((https:\/\/github\.com\/[^)]+)\)\s*$/.exec(line);
+      if (!m) fail(`${rel}: unrecognized release heading: ${line}`);
+      current = { version: `v${m[1]}`, url: m[2], date: null, body: [] };
+      sections.push(current);
+    } else if (current === null) {
+      intro.push(line);
+    } else {
+      const released = /^Released (\d{4}-\d{2}-\d{2})\s*$/.exec(line);
+      if (released && current.date === null) {
+        current.date = released[1];
+        current.body.push(`Released ${released[1]} · [View on GitHub](${current.url})`);
+      } else {
+        // Promote subsections: the release heading became the page title.
+        current.body.push(line.startsWith('### ') ? line.slice(1) : line);
+      }
+    }
+  }
+  if (sections.length === 0) fail(`${rel}: no release sections found`);
+
+  const pages = [];
+  for (const s of sections) {
+    if (s.date === null) fail(`${rel}: release ${s.version} has no "Released YYYY-MM-DD" line`);
+    pages.push({
+      rel: `reference/changelog/${s.version}.md`,
+      title: s.version,
+      body: s.body.join('\n').trim() + '\n',
+    });
+  }
+
+  const index = [
+    ...intro.join('\n').trim().split('\n'),
+    '',
+    ...sections.map((s) => `- [${s.version}](changelog/${s.version}.md) — released ${s.date}`),
+    '',
+  ];
+  pages.push({ rel, title: 'Changelog', body: index.join('\n') });
+  return pages;
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const srcDir = args.src ? path.resolve(args.src) : cloneDocs(args.ref);
@@ -142,18 +201,34 @@ function main() {
   fs.rmSync(OUT_DIR, { recursive: true, force: true });
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
-  for (const rel of files) {
-    const src = fs.readFileSync(path.join(srcDir, rel.split('/').join(path.sep)), 'utf8');
-    const { title, body } = extractTitle(rel, src);
+  let written = 0;
+  const writePage = (rel, title, body) => {
     const dest = path.join(OUT_DIR, rel.split('/').join(path.sep));
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     // JSON string literals are valid YAML, so this quoting is always safe.
     fs.writeFileSync(dest, `---\ntitle: ${JSON.stringify(title)}\n---\n\n${body}`);
+    written++;
+  };
+
+  for (const rel of files) {
+    const src = fs.readFileSync(path.join(srcDir, rel.split('/').join(path.sep)), 'utf8');
+    const { title, body } = extractTitle(rel, src);
+    if (rel === 'reference/changelog.md') {
+      for (const page of splitChangelog(rel, body)) writePage(page.rel, page.title, page.body);
+    } else {
+      writePage(rel, title, body);
+    }
   }
 
   // toc.yaml sections map 1:1 to sidebar separators; unlisted pages get
   // routes but stay out of the sidebar by not appearing in `pages`.
-  const routeOf = (page) => page.replace(/\.md$/, '');
+  // Fumadocs resolves an extensionless meta.json item to a folder first, so
+  // a page shadowed by a same-named folder (reference/changelog next to the
+  // split-out reference/changelog/ releases) needs its explicit .md path.
+  const routeOf = (page) => {
+    const route = page.replace(/\.md$/, '');
+    return fs.existsSync(path.join(OUT_DIR, route.split('/').join(path.sep))) ? page : route;
+  };
   const pages = [routeOf(toc.index)];
   for (const section of toc.sections) {
     pages.push(`---${section.title}---`);
@@ -161,7 +236,7 @@ function main() {
   }
   fs.writeFileSync(path.join(OUT_DIR, 'meta.json'), JSON.stringify({ pages }, null, 2) + '\n');
 
-  console.log(`ingest: wrote ${files.length} pages (${toc.unlisted.length} unlisted) from ${srcDir}`);
+  console.log(`ingest: wrote ${written} pages (${toc.unlisted.length} unlisted) from ${srcDir}`);
 }
 
 main();
