@@ -1,0 +1,65 @@
+name: Deploy latest docs
+
+on:
+  # Sent by sqlc-dev/sqlc when a push to main touches docs/** (see README).
+  repository_dispatch:
+    types: [docs-updated]
+  workflow_dispatch:
+  # Safety net in case a dispatch is missed.
+  schedule:
+    - cron: '17 6 * * *'
+
+concurrency:
+  group: deploy-latest
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      # Used to skip the deploy step on forks / before R2 is provisioned.
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out sqlc docs
+        uses: actions/checkout@v4
+        with:
+          repository: sqlc-dev/sqlc
+          path: .cache/sqlc
+          sparse-checkout: docs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Ingest
+        run: node scripts/ingest.mjs --src .cache/sqlc/docs
+
+      - name: Build
+        run: npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: out/
+          retention-days: 7
+
+      - name: Deploy to R2
+        if: ${{ env.R2_ACCESS_KEY_ID != '' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        # The root prefix is the latest build; versioned snapshots live under
+        # v*/ and versions.json is owned by the release workflow — never
+        # delete either from here.
+        run: |
+          aws s3 sync out/ "s3://${{ secrets.R2_BUCKET }}/" \
+            --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
+            --delete \
+            --exclude "v*" \
+            --exclude "versions.json"

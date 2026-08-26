@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out sqlc docs
+        uses: actions/checkout@v4
+        with:
+          repository: sqlc-dev/sqlc
+          path: .cache/sqlc
+          sparse-checkout: docs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Ingest
+        run: node scripts/ingest.mjs --src .cache/sqlc/docs
+
+      - name: Build
+        run: npm run build
+
+      - name: Type check
+        run: npm run types:check
