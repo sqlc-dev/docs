@@ -7,8 +7,11 @@ interface VersionsFile {
   versions?: string[];
 }
 
-// The version prefix this build was mounted under ('' for latest).
-const CURRENT = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+// The URL prefix this build was mounted under, following the Read the Docs
+// scheme: /en/latest for the current docs, /en/vX.Y.Z for snapshots.
+// Resolved (with default) via next.config.mjs `env`.
+const CURRENT = process.env.NEXT_PUBLIC_BASE_PATH ?? '/en/latest';
+const LATEST = '/en/latest';
 
 /**
  * Version dropdown driven by /versions.json at the domain root. The file is
@@ -19,7 +22,7 @@ export function VersionSwitcher() {
   const [versions, setVersions] = useState<string[]>([]);
 
   useEffect(() => {
-    // Absolute path on purpose: from a /vX.Y.Z page this still hits the
+    // Absolute path on purpose: from an /en/vX.Y.Z page this still hits the
     // domain root, where versions.json lives.
     fetch('/versions.json')
       .then((res) => (res.ok ? (res.json() as Promise<VersionsFile>) : null))
@@ -31,7 +34,7 @@ export function VersionSwitcher() {
       });
   }, []);
 
-  if (versions.length === 0 && CURRENT === '') return null;
+  if (versions.length === 0 && CURRENT === LATEST) return null;
 
   function switchTo(prefix: string) {
     const path = window.location.pathname.slice(CURRENT.length);
@@ -45,16 +48,16 @@ export function VersionSwitcher() {
       value={CURRENT}
       onChange={(e) => switchTo(e.target.value)}
     >
-      <option value="">latest</option>
+      <option value={LATEST}>latest</option>
       {versions.map((v) => (
-        <option key={v} value={`/${v}`}>
+        <option key={v} value={`/en/${v}`}>
           {v}
         </option>
       ))}
       {/* Keep the baked-in version selectable even if versions.json is
           unreachable or does not list it. */}
-      {CURRENT !== '' && !versions.includes(CURRENT.slice(1)) && (
-        <option value={CURRENT}>{CURRENT.slice(1)}</option>
+      {CURRENT !== LATEST && !versions.some((v) => `/en/${v}` === CURRENT) && (
+        <option value={CURRENT}>{CURRENT.replace('/en/', '')}</option>
       )}
     </select>
   );

@@ -1,43 +1,36 @@
 #!/usr/bin/env node
-// Post-build step: emit redirect pages for legacy URLs into out/.
+// Post-build step for the /en/latest build.
 //
-// docs.sqlc.dev used to be served by Read the Docs at /en/latest/<path>.html;
-// the README and many external links still point there. True 301s belong at
-// the hosting edge (see README), but these meta-refresh stubs — each with a
-// canonical link to the new URL — make every legacy URL work on any static
-// host, edge rules or not.
+// The site keeps the Read the Docs URL scheme, so pages already live at
+// their historical URLs (/en/latest/<path>.html) — no legacy redirects
+// needed. What's left:
+//
+//   - out/howto/upload.html: the one page-level redirect carried over from
+//     the old rediraffe config (upload was renamed to push).
+//   - out-root/: objects deployed to the domain root, outside the /en/latest
+//     prefix — redirects from / and /en/ into /en/latest/.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const CONTENT_DIR = path.join(ROOT, 'content', 'docs');
 const OUT_DIR = path.join(ROOT, 'out');
+const OUT_ROOT_DIR = path.join(ROOT, 'out-root');
 
-// Carried over from the old rediraffe config.
+// from (under /en/latest) → to (site-absolute); carried over from the old
+// rediraffe config.
 const EXTRA_REDIRECTS = {
-  'howto/upload': 'howto/push',
+  'howto/upload': '/en/latest/howto/push.html',
 };
 
-if (process.env.NEXT_PUBLIC_BASE_PATH) {
-  console.log('redirects: versioned build, skipping legacy redirect stubs');
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '/en/latest';
+if (basePath !== '/en/latest') {
+  console.log('redirects: versioned build, skipping');
   process.exit(0);
 }
 if (!fs.existsSync(OUT_DIR)) {
   console.error('redirects: out/ not found — run next build first');
   process.exit(1);
-}
-
-function routes(dir, base = dir) {
-  const out = [];
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const p = path.join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...routes(p, base));
-    else if (entry.name.endsWith('.md')) {
-      out.push(path.relative(base, p).split(path.sep).join('/').replace(/\.md$/, ''));
-    }
-  }
-  return out;
 }
 
 function stub(target) {
@@ -57,25 +50,20 @@ function stub(target) {
 `;
 }
 
-function writeStub(rel, target) {
-  const file = path.join(OUT_DIR, ...rel.split('/'));
+function writeStub(dir, rel, target) {
+  const file = path.join(dir, ...rel.split('/'));
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, stub(target));
 }
 
-let count = 0;
-for (const route of routes(CONTENT_DIR)) {
-  const target = route === 'index' ? '/' : `/${route}`;
-  const legacy = route === 'index' ? 'index' : route;
-  // RTD served both /en/latest/<path>.html and /en/latest/<path>/.
-  writeStub(`en/latest/${legacy}.html`, target);
-  writeStub(`en/latest/${legacy}/index.html`, target);
-  count += 2;
-}
 for (const [from, to] of Object.entries(EXTRA_REDIRECTS)) {
-  writeStub(`${from}.html`, `/${to}`);
-  writeStub(`${from}/index.html`, `/${to}`);
-  count += 2;
+  writeStub(OUT_DIR, `${from}.html`, to);
+  writeStub(OUT_DIR, `${from}/index.html`, to);
 }
 
-console.log(`redirects: wrote ${count} redirect stubs`);
+// Domain-root objects, deployed outside the /en/latest prefix.
+fs.rmSync(OUT_ROOT_DIR, { recursive: true, force: true });
+writeStub(OUT_ROOT_DIR, 'index.html', '/en/latest/');
+writeStub(OUT_ROOT_DIR, 'en/index.html', '/en/latest/');
+
+console.log('redirects: wrote upload→push stubs and out-root/ redirects');

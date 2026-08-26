@@ -63,54 +63,65 @@ of the sidebar). Anything unexpected — an unknown `toc.yaml` field, a page
 without a title — fails the build loudly: that's the contract-drift alarm.
 `content/` is generated output; never commit or hand-edit it.
 
-`npm run build` emits the static site to `out/` (plain HTML/CSS/JS, servable
-from any static host that resolves `/howto/select` to `howto/select.html`),
-then `scripts/redirects.mjs` adds redirect stubs for legacy URLs.
+`npm run build` emits the static site to `out/`, then the postbuild scripts
+align filenames with the `.html` routes (see below) and generate the
+domain-root redirect objects in `out-root/`.
 
-## URL scheme and redirects
+## URL scheme
 
-Pages are mounted at the domain root: `docs.sqlc.dev/howto/select`. The old
-Read the Docs URLs redirect:
+The site keeps the Read the Docs URL scheme byte-for-byte, so existing links
+never change or even redirect:
 
 ```
-/en/latest/<path>.html  →  /<path>       (301)
-/en/latest/             →  /
-/howto/upload           →  /howto/push   (carried over from the old rediraffe config)
+/en/latest/howto/select.html    the current docs (canonical)
+/en/latest/                     section index
+/en/v1.32.0/howto/select.html   versioned snapshots (same scheme RTD used for tags)
+/                               redirects to /en/latest/
+/en/latest/howto/upload.html    redirects to /en/latest/howto/push.html
+                                (carried over from the old rediraffe config)
 ```
 
-These should be real 301s at the hosting edge (e.g. Cloudflare Bulk
-Redirects). As a belt-and-braces fallback the build also emits meta-refresh
-stubs (with canonical links and `noindex`) under `out/en/latest/`, so legacy
-links work on any static host even before edge rules exist. Old RTD tag URLs
-(`/en/v1.29.0/...`) can redirect to `/` until versioned builds cover them.
+Page routes carry the `.html` suffix (a custom `url` in `lib/source.ts`), so
+every internal link, search result, and sidebar entry points at the exact
+legacy URL and the exported file *is* the page — no edge rewrite rules
+needed. Next's export writes `<route>.html.html` plus a per-segment prefetch
+directory squatting on the page's own path; `scripts/fix-html-ext.mjs`
+renames the former and moves the latter to `out-segments/`, whose keys can
+coexist with the page keys in object storage (flat keyspace) but not on a
+filesystem. Hosts serving `out/` alone (local preview, GitHub Pages) still
+work: the segment prefetch probes 404 and the client falls back to the
+full-page `.txt` payload.
 
 ## Versioning
 
 Versions are immutable build artifacts, not branches:
 
-- The root serves latest, rebuilt on every `main` docs change.
-- The release workflow builds a tag with `NEXT_PUBLIC_BASE_PATH=/v1.32.0`
+- `/en/latest` serves the current docs, rebuilt on every `main` docs change.
+- The release workflow builds a tag with `NEXT_PUBLIC_BASE_PATH=/en/v1.32.0`
   (static export bakes absolute asset/link/search paths, so the prefix is a
-  build-time setting) and uploads it to the `/v1.32.0/` prefix, once, forever.
+  build-time setting) and uploads it to the `en/v1.32.0/` prefix, once,
+  forever.
 - `versions.json` at the domain root, appended by each release, drives the
   version-switcher dropdown; every snapshot fetches it at runtime so old
   snapshots list new versions.
 - Versioned builds set `noindex` so stale versions never outrank current
   docs in search engines.
 - Versioning starts at the first tag that contains `docs/toc.yaml`; older
-  tags are not backfilled.
+  tags are not backfilled. Old RTD tag URLs for those (`/en/v1.29.0/...`)
+  can redirect to `/en/latest/` at the edge.
 
 ## CI
 
 - **CI** (`ci.yml`): ingest + build + typecheck on every PR and push to main.
 - **Deploy latest docs** (`deploy.yml`): runs on `repository_dispatch`
   (type `docs-updated`), manual dispatch, and a daily cron as a safety net.
-  Ingests sqlc@main, builds, syncs `out/` to the R2 bucket root — excluding
-  `v*/` and `versions.json`, which belong to releases.
+  Ingests sqlc@main, builds, syncs `out/` + `out-segments/` to the
+  `en/latest/` prefix and the `out-root/` redirect objects to the bucket
+  root.
 - **Deploy versioned docs** (`release.yml`): takes a tag (manual input or
   `repository_dispatch` type `docs-release` with `{"tag": "v1.32.0"}`),
-  builds it under its version prefix, syncs to that prefix, and appends the
-  tag to `versions.json`.
+  builds it under `/en/<tag>`, syncs to that prefix, and appends the tag to
+  `versions.json`.
 
 Deploys need these repository secrets: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
 `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`. Until they exist, the deploy step is

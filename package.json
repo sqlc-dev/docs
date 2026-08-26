@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "ingest": "node scripts/ingest.mjs",
-    "build": "next build",
-    "postbuild": "node scripts/redirects.mjs",
+    "build": "node -e \"require('fs').rmSync('out', {recursive: true, force: true})\" && next build",
+    "postbuild": "node scripts/fix-html-ext.mjs && node scripts/redirects.mjs",
     "dev": "next dev",
     "start": "serve out",
     "types:check": "next typegen && tsc --noEmit"

@@ -54,12 +54,17 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
-        # The root prefix is the latest build; versioned snapshots live under
-        # v*/ and versions.json is owned by the release workflow — never
-        # delete either from here.
+        # The latest build lives under en/latest/; versioned snapshots
+        # (en/vX.Y.Z/) and versions.json belong to the release workflow.
+        # out-segments/ holds per-segment prefetch payloads whose keys
+        # (howto/select.html/__next.*.txt) can only coexist with the page
+        # keys (howto/select.html) in object storage — upload it second, and
+        # keep the first sync's --delete away from those keys.
         run: |
-          aws s3 sync out/ "s3://${{ secrets.R2_BUCKET }}/" \
-            --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
-            --delete \
-            --exclude "v*" \
-            --exclude "versions.json"
+          ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          aws s3 sync out/ "s3://${{ secrets.R2_BUCKET }}/en/latest/" \
+            --endpoint-url "$ENDPOINT" --delete --exclude "*.html/__next.*"
+          aws s3 sync out-segments/ "s3://${{ secrets.R2_BUCKET }}/en/latest/" \
+            --endpoint-url "$ENDPOINT"
+          aws s3 cp out-root/ "s3://${{ secrets.R2_BUCKET }}/" \
+            --endpoint-url "$ENDPOINT" --recursive

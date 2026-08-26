@@ -19,6 +19,10 @@ const docs = defineDocs({
 // See https://fumadocs.dev/docs/headless/source-api for more info
 export const source = loader({
   baseUrl: docsRoute,
+  // Keep the Read the Docs URLs byte-for-byte: pages live at
+  // <basePath>/howto/select.html, matching what RTD served at
+  // /en/latest/howto/select.html. The section index stays at /.
+  url: (slugs) => (slugs.length === 0 ? '/' : `/${slugs.join('/')}.html`),
   source: docs.toFumadocsSource(),
   plugins: [],
 });

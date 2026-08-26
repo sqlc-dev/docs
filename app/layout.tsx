@@ -7,19 +7,20 @@ const inter = Inter({
   subsets: ['latin'],
 });
 
+// Resolved (with default) via next.config.mjs `env`.
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH;
+
 export const metadata: Metadata = {
-  metadataBase: new URL(
-    `https://docs.sqlc.dev${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}`,
-  ),
+  metadataBase: new URL(`https://docs.sqlc.dev${basePath}`),
   title: {
     template: '%s — sqlc',
     default: 'sqlc Documentation',
   },
   // Versioned snapshots must never outrank the current docs in search
-  // engines: only the root (latest) build is indexable.
-  ...(process.env.NEXT_PUBLIC_BASE_PATH
-    ? { robots: { index: false, follow: false } }
-    : {}),
+  // engines: only the /en/latest build is indexable.
+  ...(basePath === '/en/latest'
+    ? {}
+    : { robots: { index: false, follow: false } }),
 };
 
 export default function Layout({ children }: LayoutProps<'/'>) {

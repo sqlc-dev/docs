@@ -4,6 +4,8 @@ node_modules/
 # Next.js build output
 .next/
 out/
+out-root/
+out-segments/
 
 # fumadocs-mdx generated files
 .source/

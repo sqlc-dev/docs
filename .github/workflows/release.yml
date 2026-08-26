@@ -53,8 +53,9 @@ jobs:
         run: npm run build
         env:
           # Static export bakes absolute asset/link/search paths, so the
-          # version prefix must be set at build time.
-          NEXT_PUBLIC_BASE_PATH: /${{ env.TAG }}
+          # version prefix must be set at build time. /en/vX.Y.Z matches the
+          # old Read the Docs tag URLs.
+          NEXT_PUBLIC_BASE_PATH: /en/${{ env.TAG }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -70,8 +71,10 @@ jobs:
           ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
           BUCKET: ${{ secrets.R2_BUCKET }}
         run: |
-          aws s3 sync out/ "s3://${BUCKET}/${TAG}/" \
-            --endpoint-url "$ENDPOINT" --delete
+          aws s3 sync out/ "s3://${BUCKET}/en/${TAG}/" \
+            --endpoint-url "$ENDPOINT" --delete --exclude "*.html/__next.*"
+          aws s3 sync out-segments/ "s3://${BUCKET}/en/${TAG}/" \
+            --endpoint-url "$ENDPOINT"
 
           # Append this version to versions.json at the domain root; every
           # snapshot fetches it at runtime, so old snapshots list new versions.

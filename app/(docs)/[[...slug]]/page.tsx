@@ -13,9 +13,18 @@ import type { Metadata } from 'next';
 import { createRelativeLink } from '@/lib/relative-link';
 import { gitConfig } from '@/lib/shared';
 
+// Routes carry the .html suffix of the legacy Read the Docs URLs
+// (/howto/select.html); page slugs in the source do not.
+function toSlugs(slug: string[] | undefined): string[] | undefined {
+  if (!slug || slug.length === 0) return slug;
+  const last = slug[slug.length - 1];
+  if (!last.endsWith('.html')) return slug;
+  return [...slug.slice(0, -1), last.slice(0, -'.html'.length)];
+}
+
 export default async function Page(props: PageProps<'/[[...slug]]'>) {
   const params = await props.params;
-  const page = source.getPage(params.slug);
+  const page = source.getPage(toSlugs(params.slug));
   if (!page) notFound();
 
   const MDX = page.data.body;
@@ -45,12 +54,15 @@ export default async function Page(props: PageProps<'/[[...slug]]'>) {
 }
 
 export async function generateStaticParams() {
-  return source.generateParams();
+  return source.generateParams().map(({ slug }) => {
+    if (!slug || slug.length === 0) return { slug };
+    return { slug: [...slug.slice(0, -1), `${slug[slug.length - 1]}.html`] };
+  });
 }
 
 export async function generateMetadata(props: PageProps<'/[[...slug]]'>): Promise<Metadata> {
   const params = await props.params;
-  const page = source.getPage(params.slug);
+  const page = source.getPage(toSlugs(params.slug));
   if (!page) notFound();
 
   return {
