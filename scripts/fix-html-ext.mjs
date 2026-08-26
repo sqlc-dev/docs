@@ -12,8 +12,8 @@
 // The page must be served from the exact path the segment directory
 // occupies. A filesystem can't hold both, but object storage can (keys are
 // flat), so: rename the page file to the key the URL names, and move the
-// segment directories aside into out-segments/ — the deploy workflows upload
-// both trees into the same prefix. On hosts serving out/ alone (local
+// segment directories aside into out-segments/ — a deploy uploads both
+// trees into the same prefix. On hosts serving out/ alone (local
 // preview, GitHub Pages) the segment prefetch probes 404 and the client
 // falls back to the full-page .txt payload; navigation still works.
 import fs from 'node:fs';

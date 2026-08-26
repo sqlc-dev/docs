@@ -97,9 +97,9 @@ full-page `.txt` payload.
 Versions are immutable build artifacts, not branches:
 
 - `/en/latest` serves the current docs, rebuilt on every `main` docs change.
-- The release workflow builds a tag with `NEXT_PUBLIC_BASE_PATH=/en/v1.32.0`
+- A release build uses `NEXT_PUBLIC_BASE_PATH=/en/v1.32.0`
   (static export bakes absolute asset/link/search paths, so the prefix is a
-  build-time setting) and uploads it to the `en/v1.32.0/` prefix, once,
+  build-time setting) and is uploaded to the `en/v1.32.0/` prefix, once,
   forever.
 - `versions.json` at the domain root, appended by each release, drives the
   version-switcher dropdown; every snapshot fetches it at runtime so old
@@ -112,44 +112,14 @@ Versions are immutable build artifacts, not branches:
 
 ## CI
 
-- **CI** (`ci.yml`): ingest + build + typecheck on every PR and push to main.
-- **Deploy latest docs** (`deploy.yml`): runs on `repository_dispatch`
-  (type `docs-updated`), manual dispatch, and a daily cron as a safety net.
-  Ingests sqlc@main, builds, syncs `out/` + `out-segments/` to the
-  `en/latest/` prefix and the `out-root/` redirect objects to the bucket
-  root.
-- **Deploy versioned docs** (`release.yml`): takes a tag (manual input or
-  `repository_dispatch` type `docs-release` with `{"tag": "v1.32.0"}`),
-  builds it under `/en/<tag>`, syncs to that prefix, and appends the tag to
-  `versions.json`.
+`ci.yml` runs ingest + build + typecheck on every PR and push to main, and
+uploads the built site as a `site-preview` artifact (serve it locally with
+`python3 -m http.server` and open `/en/latest/`).
 
-Deploys need these repository secrets: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
-`R2_SECRET_ACCESS_KEY`, `R2_BUCKET`. Until they exist, the deploy step is
-skipped and the workflows just prove the build is green.
-
-The sqlc repo side is a tiny workflow that notifies this repo when docs
-change. `DOCS_DISPATCH_TOKEN` is a fine-grained PAT scoped to this repo only,
-with Contents read/write permission (what `repository_dispatch` requires):
-
-```yaml
-# .github/workflows/docs-dispatch.yml in sqlc-dev/sqlc
-name: Notify docs site
-on:
-  push:
-    branches: [main]
-    paths: ['docs/**']
-jobs:
-  dispatch:
-    runs-on: ubuntu-latest
-    steps:
-      - run: |
-          curl -sS -X POST \
-            -H "Authorization: Bearer ${{ secrets.DOCS_DISPATCH_TOKEN }}" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/sqlc-dev/docs/dispatches \
-            -d '{"event_type": "docs-updated"}'
-```
-
-and the release equivalent sending
-`{"event_type": "docs-release", "client_payload": {"tag": "${{ github.ref_name }}"}}`
-on tag push.
+Deployment is not wired up yet — hosting is still to be decided. When it
+is, the deploy needs to upload `out/` and `out-segments/` into the version
+prefix (`en/latest/` or `en/<tag>/`) and the `out-root/` redirect objects to
+the domain root, and a release deploy appends its tag to `versions.json`.
+The trigger side is a `repository_dispatch` from a small workflow in
+sqlc-dev/sqlc on pushes to `main` that touch `docs/**` (plus a tag-push
+equivalent), with a daily cron here as a safety net.
