@@ -147,7 +147,8 @@ uploads the built site as a `site-preview` artifact (serve it locally with
 3. **deploy** — `scripts/assemble-site.mjs` stitches the artifacts into one
    tree: root redirects, `en/latest/`, each `en/vX.Y.Z/` with the banner and
    canonical/noindex injected, `en/stable/` redirect stubs mirroring the
-   newest snapshot's pages, `versions.json`, and a `404.html`. A missing
+   newest snapshot's pages, `versions.json`, `robots.txt` + `sitemap.xml`
+   (listing only the indexable `/en/latest/` pages), and a `404.html`. A missing
    snapshot fails the deploy — it would silently break published URLs.
    `actions/deploy-pages` publishes the tree.
 
