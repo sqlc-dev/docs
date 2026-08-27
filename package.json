@@ -7,7 +7,7 @@
     "build": "node -e \"require('fs').rmSync('out', {recursive: true, force: true})\" && next build",
     "postbuild": "node scripts/fix-html-ext.mjs && node scripts/redirects.mjs",
     "dev": "next dev",
-    "start": "serve out",
+    "start": "node scripts/preview.mjs",
     "types:check": "next typegen && tsc --noEmit"
   },
   "dependencies": {
