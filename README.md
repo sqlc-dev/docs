@@ -78,6 +78,8 @@ never change or even redirect:
 /en/latest/howto/select.html    the current docs (canonical)
 /en/latest/                     section index
 /en/v1.32.0/howto/select.html   versioned snapshots (same scheme RTD used for tags)
+/en/stable/howto/select.html    RTD's newest-release alias; redirects into
+                                the newest versioned snapshot
 /                               redirects to /en/latest/
 /en/latest/howto/upload.html    redirects to /en/latest/howto/push.html
                                 (carried over from the old rediraffe config)
@@ -103,25 +105,56 @@ Versions are immutable build artifacts, not branches:
   (static export bakes absolute asset/link/search paths, so the prefix is a
   build-time setting) and is uploaded to the `en/v1.32.0/` prefix, once,
   forever.
-- `versions.json` at the domain root, appended by each release, drives the
-  version-switcher dropdown; every snapshot fetches it at runtime so old
+- `versions.json` at the domain root, regenerated on every deploy, drives
+  the version-switcher dropdown; every snapshot fetches it at runtime so old
   snapshots list new versions.
-- Versioned builds set `noindex` so stale versions never outrank current
-  docs in search engines.
-- Versioning starts at the first tag that contains `docs/toc.yaml`; older
-  tags are not backfilled. Old RTD tag URLs for those (`/en/v1.29.0/...`)
-  can redirect to `/en/latest/` at the edge.
+- Fumadocs versioning starts at the first tag that contains
+  `docs/toc.yaml`. Every older tag the RTD site served (`v1.7.0` through
+  `v1.31.1`, listed in `legacy-versions.json`) is rebuilt with **Sphinx**
+  from that tag's own `docs/` and fully pinned `requirements.txt` — exactly
+  as Read the Docs built it — so its `/en/vX.Y.Z/...` URLs keep resolving
+  byte-for-byte. That list is frozen; new releases never go in it.
 
-## CI
+Non-latest builds, both kinds, carry an "older release" treatment:
+
+- A banner at the top of every page linking to `/en/latest/`. Fumadocs
+  snapshots bake it in at build time (`components/version-banner.tsx`,
+  keyed off `NEXT_PUBLIC_BASE_PATH`); Sphinx snapshots get it injected
+  post-build by `scripts/assemble-site.mjs`.
+- Old releases stay out of search results the way docs.djangoproject.com
+  does it: each Sphinx-snapshot page gets `rel=canonical` pointing at the
+  same path under `/en/latest/` when that page still exists there (old
+  inbound links keep passing ranking signal to the current docs), and
+  `noindex` when it doesn't. Fumadocs snapshots set `noindex` at build time.
+
+## CI and deployment
 
 `ci.yml` runs ingest + build + typecheck on every PR and push to main, and
 uploads the built site as a `site-preview` artifact (serve it locally with
 `python3 -m http.server` and open `/en/latest/`).
 
-Deployment is not wired up yet — hosting is still to be decided. When it
-is, the deploy needs to upload `out/` and `out-segments/` into the version
-prefix (`en/latest/` or `en/<tag>/`) and the `out-root/` redirect objects to
-the domain root, and a release deploy appends its tag to `versions.json`.
-The trigger side is a `repository_dispatch` from a small workflow in
-sqlc-dev/sqlc on pushes to `main` that touch `docs/**` (plus a tag-push
-equivalent), with a daily cron here as a safety net.
+`deploy.yml` builds the whole site and publishes it to **GitHub Pages**:
+
+1. **latest** — ingest `sqlc-dev/sqlc@main` docs and build with Fumadocs
+   (`out/` + the `out-root/` redirect objects). `out-segments/` is not
+   deployed: its keys collide with page paths on a filesystem host, and the
+   client falls back to full-page payloads (see "URL scheme").
+2. **sphinx** — a matrix job per tag in `legacy-versions.json`, each
+   building that tag's docs with its own pinned toolchain on Python 3.11.
+   Snapshots are immutable, so the built HTML is cached per tag
+   (`actions/cache`); a cache miss just rebuilds from source. Bump
+   `CACHE_EPOCH` in the workflow to force a full rebuild.
+3. **deploy** — `scripts/assemble-site.mjs` stitches the artifacts into one
+   tree: root redirects, `en/latest/`, each `en/vX.Y.Z/` with the banner and
+   canonical/noindex injected, `en/stable/` redirect stubs mirroring the
+   newest snapshot's pages, `versions.json`, and a `404.html`. A missing
+   snapshot fails the deploy — it would silently break published URLs.
+   `actions/deploy-pages` publishes the tree.
+
+It runs on pushes to main here, on a daily cron, and on a
+`repository_dispatch` (`docs-updated`) — still to be wired up as a small
+workflow in sqlc-dev/sqlc that fires on pushes to `main` touching `docs/**`.
+
+One-time repo setup: Settings → Pages → source "GitHub Actions", custom
+domain `docs.sqlc.dev`; cutover is pointing that DNS record at GitHub Pages
+instead of Read the Docs.

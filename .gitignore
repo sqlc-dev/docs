@@ -7,6 +7,10 @@ out/
 out-root/
 out-segments/
 
+# Assembled GitHub Pages tree (scripts/assemble-site.mjs)
+_site/
+_artifacts/
+
 # fumadocs-mdx generated files
 .source/
 next-env.d.ts
