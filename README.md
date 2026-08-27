@@ -1,1 +1,127 @@
-Hi
+# sqlc docs site
+
+This repository builds and deploys <https://docs.sqlc.dev>. It contains **no
+documentation content**. Content lives in
+[sqlc-dev/sqlc](https://github.com/sqlc-dev/sqlc) under `docs/` as plain
+GitHub-flavored Markdown; this repo ingests it, renders it with
+[Fumadocs](https://fumadocs.dev) on Next.js, and publishes a fully static
+site.
+
+```
+sqlc-dev/sqlc                          this repo
+┌─────────────────────────┐            ┌──────────────────────────────┐
+│ docs/*.md   (content)   │  checkout  │ ingest: md → content tree    │
+│ docs/toc.yaml (nav)     │ ─────────► │ build:  Fumadocs / Next.js   │
+│ internal/docs (Go lint) │            │ deploy: static files → CDN   │
+└─────────────────────────┘            └──────────────────────────────┘
+```
+
+The split exists so that sqlc contributors never need a JavaScript toolchain:
+the Go linter in `sqlc/internal/docs` (runs in sqlc's `go test ./...`)
+enforces the content contract, and anything that passes it must render here.
+If a change to this repo would reject content the linter accepts, that's a
+bug in this repo — or a proposed contract change that goes to the linter
+first.
+
+## The content contract
+
+Enforced upstream by `sqlc/internal/docs`:
+
+- Plain CommonMark + GFM. No MDX, no JSX, no raw HTML except HTML comments.
+- Every page starts with exactly one `#` heading — the page title.
+- Admonitions use GitHub alert syntax: `> [!NOTE]`, `> [!TIP]`, `> [!WARNING]`.
+- Relative links (`../reference/config.md#database`) resolve to real files;
+  anchors match GitHub-style heading slugs.
+- `docs/toc.yaml` lists every page exactly once: an `index`, titled
+  `sections`, and `unlisted` (published, not in the sidebar).
+
+Two implementation details here are load-bearing for that contract:
+
+- Ingested pages keep their `.md` extension, so fumadocs-mdx compiles them as
+  **Markdown, not MDX** — literal `{...}` and `<...>` in prose (which the
+  linter rightly does not reject) render fine.
+- `lib/remark-github-alerts.ts` maps `> [!NOTE]` blockquotes to Fumadocs
+  `<Callout>` components, and `lib/relative-link.tsx` resolves relative `.md`
+  links (bare ones included) to page routes at render time.
+
+## Local development
+
+```sh
+npm ci
+npm run ingest           # sparse-clones sqlc-dev/sqlc@main into .cache/
+npm run dev
+```
+
+`npm run ingest -- --ref v1.30.0` builds another ref;
+`npm run ingest -- --src ../sqlc/docs` uses a local checkout (CI does this).
+
+The ingest step (`scripts/ingest.mjs`) writes `content/docs/`: it derives
+each page's frontmatter `title` from its `#` heading and strips it, copies
+the body verbatim, and converts `toc.yaml` into a Fumadocs `meta.json`
+(sections become sidebar separators; `unlisted` pages get routes but stay out
+of the sidebar). The one page-level transform: `reference/changelog.md` is
+split into one page per release (`/en/latest/reference/changelog/v1.31.1.html`)
+plus a release index at the original URL. Anything unexpected — an unknown `toc.yaml` field, a page
+without a title — fails the build loudly: that's the contract-drift alarm.
+`content/` is generated output; never commit or hand-edit it.
+
+`npm run build` emits the static site to `out/`, then the postbuild scripts
+align filenames with the `.html` routes (see below) and generate the
+domain-root redirect objects in `out-root/`.
+
+## URL scheme
+
+The site keeps the Read the Docs URL scheme byte-for-byte, so existing links
+never change or even redirect:
+
+```
+/en/latest/howto/select.html    the current docs (canonical)
+/en/latest/                     section index
+/en/v1.32.0/howto/select.html   versioned snapshots (same scheme RTD used for tags)
+/                               redirects to /en/latest/
+/en/latest/howto/upload.html    redirects to /en/latest/howto/push.html
+                                (carried over from the old rediraffe config)
+```
+
+Page routes carry the `.html` suffix (a custom `url` in `lib/source.ts`), so
+every internal link, search result, and sidebar entry points at the exact
+legacy URL and the exported file *is* the page — no edge rewrite rules
+needed. Next's export writes `<route>.html.html` plus a per-segment prefetch
+directory squatting on the page's own path; `scripts/fix-html-ext.mjs`
+renames the former and moves the latter to `out-segments/`, whose keys can
+coexist with the page keys in object storage (flat keyspace) but not on a
+filesystem. Hosts serving `out/` alone (local preview, GitHub Pages) still
+work: the segment prefetch probes 404 and the client falls back to the
+full-page `.txt` payload.
+
+## Versioning
+
+Versions are immutable build artifacts, not branches:
+
+- `/en/latest` serves the current docs, rebuilt on every `main` docs change.
+- A release build uses `NEXT_PUBLIC_BASE_PATH=/en/v1.32.0`
+  (static export bakes absolute asset/link/search paths, so the prefix is a
+  build-time setting) and is uploaded to the `en/v1.32.0/` prefix, once,
+  forever.
+- `versions.json` at the domain root, appended by each release, drives the
+  version-switcher dropdown; every snapshot fetches it at runtime so old
+  snapshots list new versions.
+- Versioned builds set `noindex` so stale versions never outrank current
+  docs in search engines.
+- Versioning starts at the first tag that contains `docs/toc.yaml`; older
+  tags are not backfilled. Old RTD tag URLs for those (`/en/v1.29.0/...`)
+  can redirect to `/en/latest/` at the edge.
+
+## CI
+
+`ci.yml` runs ingest + build + typecheck on every PR and push to main, and
+uploads the built site as a `site-preview` artifact (serve it locally with
+`python3 -m http.server` and open `/en/latest/`).
+
+Deployment is not wired up yet — hosting is still to be decided. When it
+is, the deploy needs to upload `out/` and `out-segments/` into the version
+prefix (`en/latest/` or `en/<tag>/`) and the `out-root/` redirect objects to
+the domain root, and a release deploy appends its tag to `versions.json`.
+The trigger side is a `repository_dispatch` from a small workflow in
+sqlc-dev/sqlc on pushes to `main` that touch `docs/**` (plus a tag-push
+equivalent), with a daily cron here as a safety net.
