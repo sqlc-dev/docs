@@ -49,8 +49,19 @@ Two implementation details here are load-bearing for that contract:
 ```sh
 npm ci
 npm run ingest           # sparse-clones sqlc-dev/sqlc@main into .cache/
-npm run dev
+npm run dev              # dev server at http://localhost:3000/en/latest/
 ```
+
+To preview the real static build instead:
+
+```sh
+npm run build
+npm start                # serves it at http://localhost:8000/en/latest/
+```
+
+`npm start` maps URLs exactly like production (the `/en/latest` prefix, the
+domain-root redirects, `.html` files served verbatim) — generic static file
+servers with clean-URL rewriting will redirect the `.html` URLs away.
 
 `npm run ingest -- --ref v1.30.0` builds another ref;
 `npm run ingest -- --src ../sqlc/docs` uses a local checkout (CI does this).
