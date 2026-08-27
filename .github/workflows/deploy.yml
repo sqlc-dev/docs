@@ -1,0 +1,168 @@
+# Build and deploy docs.sqlc.dev to GitHub Pages.
+#
+# The published tree (see README "URL scheme"):
+#
+#   /en/latest/     Fumadocs build of sqlc-dev/sqlc@main docs/
+#   /en/vX.Y.Z/     legacy snapshots (legacy-versions.json) rebuilt with
+#                   Sphinx from each tag's own docs/ + pinned
+#                   requirements.txt, exactly as Read the Docs built them,
+#                   with an "old version" banner injected per page
+#   /en/stable/     redirect stubs into the newest legacy snapshot
+#   /, /en/         redirects to /en/latest/
+#
+# Legacy snapshots are immutable, so their HTML is cached per tag; a cache
+# miss (first run, or eviction) rebuilds from source in ~2 minutes. Bump
+# CACHE_EPOCH to force a rebuild of every snapshot (e.g. after changing
+# the Sphinx build steps below).
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  # Content pushes to sqlc-dev/sqlc docs/ (a workflow there sends this).
+  repository_dispatch:
+    types: [docs-updated]
+  # Safety net: pick up content changes even if no dispatch arrived.
+  schedule:
+    - cron: '23 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time; a queued run supersedes anything else waiting.
+concurrency:
+  group: deploy-pages
+  cancel-in-progress: false
+
+env:
+  CACHE_EPOCH: 1
+
+jobs:
+  # Fumadocs build of the current docs (/en/latest) + domain-root redirects.
+  latest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out sqlc docs
+        uses: actions/checkout@v4
+        with:
+          repository: sqlc-dev/sqlc
+          path: .cache/sqlc
+          sparse-checkout: docs
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Ingest
+        run: node scripts/ingest.mjs --src .cache/sqlc/docs
+
+      - name: Build
+        run: npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site-latest
+          path: |
+            out/
+            out-root/
+          retention-days: 1
+
+  # The legacy snapshot tags, read from legacy-versions.json.
+  versions:
+    runs-on: ubuntu-latest
+    outputs:
+      sphinx: ${{ steps.read.outputs.sphinx }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: read
+        run: echo "sphinx=$(jq -c .sphinx legacy-versions.json)" >> "$GITHUB_OUTPUT"
+
+  # One Sphinx build per legacy tag, exactly as Read the Docs built it:
+  # the tag's own docs/ directory, conf.py, and fully pinned
+  # requirements.txt. Python 3.11 is what RTD's config specified for the
+  # newest tags and builds every older toolchain back to Sphinx 3.4 too.
+  sphinx:
+    needs: versions
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        version: ${{ fromJSON(needs.versions.outputs.sphinx) }}
+    steps:
+      - name: Restore snapshot cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: html
+          key: sphinx-html-${{ matrix.version }}-${{ env.CACHE_EPOCH }}
+
+      - name: Check out sqlc ${{ matrix.version }}
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: sqlc-dev/sqlc
+          ref: ${{ matrix.version }}
+          path: sqlc
+          sparse-checkout: docs
+
+      - uses: actions/setup-python@v5
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          python-version: '3.11'
+
+      - name: Build with Sphinx
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r sqlc/docs/requirements.txt
+          .venv/bin/sphinx-build -b html -d .doctrees sqlc/docs html
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sphinx-${{ matrix.version }}
+          path: html
+          retention-days: 1
+
+  # Assemble the full tree and publish it.
+  deploy:
+    needs: [latest, sphinx]
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download latest build
+        uses: actions/download-artifact@v4
+        with:
+          name: site-latest
+          path: _artifacts/latest
+
+      - name: Download Sphinx snapshots
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sphinx-*
+          path: _artifacts/sphinx
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Assemble site
+        run: node scripts/assemble-site.mjs --latest _artifacts/latest --sphinx _artifacts/sphinx --out _site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
