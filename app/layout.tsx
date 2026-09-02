@@ -26,6 +26,17 @@ export const metadata: Metadata = {
 export default function Layout({ children }: LayoutProps<'/'>) {
   return (
     <html lang="en" className={inter.className} suppressHydrationWarning>
+      <head>
+        {/* Plausible analytics, self-proxied (see the privacy guide). A plain
+            tag rather than next/script so it lands in every exported page's
+            HTML, as it did in the old Sphinx docs/_templates/layout.html. */}
+        <script
+          defer
+          data-domain="docs.sqlc.dev"
+          data-api="https://proxy.sqlc.dev/api/event"
+          src="https://proxy.sqlc.dev/js/script.js"
+        />
+      </head>
       <body className="flex flex-col min-h-screen">
         <Provider>{children}</Provider>
       </body>
